@@ -14,7 +14,6 @@ stock= matches[3]
 console.log("Stock:"+stock);
 
 var quotesArray = [];
-var quotes= [];
 var format = d3.time.format("%Y-%m-%dT%H:%M:%S");
 
 var margin = {top: 20, right: 20, bottom: 30, left: 50},
@@ -23,14 +22,24 @@ var margin = {top: 20, right: 20, bottom: 30, left: 50},
 
 var formatDate = d3.time.format("%d-%b-%y");
 
-var x = d3.scale.linear()
+var xTime = d3.time.scale()
+    .range([0, width]);
+
+var xIndex = d3.scale.linear()
     .range([0, width]);
 
 var y = d3.scale.linear()
-    .range([height, 0]);
+    .range([height,0]);
 
-var xAxis = d3.svg.axis()
+
+var xTimeAxis = d3.svg.axis()
     .scale(x)
+    .orient("bottom")
+    .tickFormat(d3.time.format("%Hh %Mm %Ss"))
+    .ticks(d3.time.seconds,5);
+
+var xIndexAxis = d3.svg.axis()
+    .scale(xIndex)
     .orient("bottom")
     .ticks(5);
 
@@ -39,23 +48,22 @@ var yAxis = d3.svg.axis()
     .orient("left")
     .ticks(5);
 
+var x=xIndex;
+var xAxis=xIndexAxis;
 
-var svg = d3.select("body").append("svg")
+
+var chartSvg = d3.select("body").append("svg")
     .attr("width", width + margin.left + margin.right)
     .attr("height", height + margin.top + margin.bottom)
     .append("g")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-    x.domain(d3.extent(quotesArray, function(quote) { return quote.index; })); 
-                       //{return  format.parse(quote.quoteTime.slice(0,19))}));
-    svg.append("g")
+    chartSvg.append("g")
     .attr("class", "x axis")
-    .attr("transform", "translate(0," + height + ")")
-    .call(xAxis);
+    .attr("transform", "translate(0," + height + ")");
 
-    y.domain(d3.extent(quotesArray, function(quote) { return quote.last; }));
 
-    svg.append("g")
+chartSvg.append("g")
     .attr("class", "y axis")
     .call(yAxis)
     .append("text")
@@ -65,120 +73,223 @@ var svg = d3.select("body").append("svg")
     .style("text-anchor", "end")
     .text("Price ($)");
 
+var textSvg = d3.select("body").append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom);
 
+
+var line = d3.svg.line()
+    .x(function(d) { return x(d.index); })
+    .y(function(d) { return y(d.price/100); })
+    .interpolate("linear");
+
+var area= d3.svg.area()
+    .x(function(d) { return x(d.quoteTime); })
+    .y0(height)
+    .y1(function(d) { return y(d.price/100); });
+
+chartSvg.append("path")
+    .attr("class", "line")
+    .attr("stroke", "black")
+    .attr("stroke-width", 1)
+    .attr("fill", "none");
 
 var quoteCounter = 0;
 var quotesWebSocker = new WebSocket("wss://api.stockfighter.io/ob/api/ws/"+account+"/venues/"+venue+"/tickertape/stocks/"+stock);
+
+
 quotesWebSocker.onmessage = function (event) {
     var ticker = JSON.parse(event.data);
-
     quoteCounter++;
+    var quote = { "quoteTime":format.parse(ticker.quote.quoteTime.slice(0,19)), "price":ticker.quote.last, "index":quoteCounter};
 
-    var quote = { "quoteTime":ticker.quote.quoteTime, "price":ticker.quote.last, "index":quoteCounter};
-    quotesArray[quotesArray.length] = quote;
-    quotes[quotes.length] = ticker.quote.last;      
+    if (quotesArray.length > 0 && ((new Date(quote.quoteTime)).getTime() > (new Date(quotesArray[quotesArray.length])).getTime())) {
+        quotesArray.push(quote);
+    } else {
+        quotesArray.push(quote);
+    }
+}
 
-    x.domain(d3.extent(quotesArray, function(quote) { return quote.index; })); 
-                       //{return  format.parse(quote.quoteTime.slice(0,19))}));
+var tick = 0;
 
-    y.domain(d3.extent(quotesArray, function(quote) { return quote.last; }));
-
-
-
-    
-    /*
-    var bar = svg.selectAll("g")
-    .data(quotesArray)
-    .enter().append("g")
-    .attr("transform", function(d, i) { return "translate(" + i * 1+ ",0)"; });
-
-    bar.append("rect")
-    .attr("height", function(d,i) {return d.price/100;})
-    .attr("width", 1);  
-    */
-
-    var line= d3.svg.line()
-    .x(function(d) { return d.index; })
-    .y(function(d) { return d.price/100; })
-    .interpolate("linear");
-
-    svg.append("path")
-    .attr("d", line(quotesArray))
-    .attr("stroke", "blue")
-    .attr("stroke-width", 2)
-    .attr("fill", "none");
-
+var graphQuoteArray = [];
+for (var i = 0; i < width; i++) {
+        graphQuoteArray.push({ "quoteTime":0, "price":0, "index":-width+i+1});
 }
 
 
 /*
-//var n = 200;
-var random = d3.random.normal(0, .2);
+setInterval(function() {
+    console.log("Loop cycle: "+(tick++));
+    /*
+    if (quotesArray.length > 0) {
+        console.log("Data in");
 
-function chart(domain, interpolation, tick) {
-    //var data = d3.range(n).map(random);
-    var data = quotesArray
-    var margin = {top: 6, right: 0, bottom: 6, left: 40};
-    var width = 960 - margin.right;
-    var height = 960 - margin.top - margin.bottom;
+        var diff =   quotesArray.length  - width;
+        if (diff > 0) {
+            graphQuoteArray = quotesArray.slice(quotesArray.length-width,quotesArray.length);
+            chartSvg.select(".line")
+            .attr("transform", "translate(" + (-diff) + ",0)");
+        } else {
+            graphQuoteArray = quotesArray.slice(0,quotesArray.length);
+        }
 
-    var x = d3.scale.linear()
-    .domain(domain)
-    .range([0, width]);
+        chartSvg.select("path")
+        .transition();
 
-    var y = d3.scale.linear()
-    .domain([0, 300])
-    .range([height, 0]);
+        chartSvg.select(".line")
+        .attr("d",line(graphQuoteArray));
 
-    var line = d3.svg.line()
-    .interpolate(interpolation)
-    .x(function(d, i) { return x(i); })
-    .y(function(d, i) { return y(d); });
+        var xExtent = d3.extent(graphQuoteArray, function(quote){return  quote.index;}) 
+        x.range([0,width])
+        x.domain(xExtent);
+        chartSvg.selectAll("g.x.axis").call(xAxis);
 
-    var svg = d3.select("body").append("p").append("svg")
-    .attr("width", width + margin.left + margin.right)
-    .attr("height", height + margin.top + margin.bottom)
-    .style("margin-left", -margin.left + "px")
-    .append("g")
-    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-    svg.append("defs").append("clipPath")
-    .attr("id", "clip")
-    .append("rect")
-    .attr("width", width)
-    .attr("height", height);
+        var yExtent = d3.extent(graphQuoteArray, function(quote) { return quote.price; });
 
-    svg.append("g")
-    .attr("class", "y axis")
-    .call(d3.svg.axis().scale(y).ticks(5).orient("left"));
+        y.domain([yExtent[0]/100-20,yExtent[1]/100+20]);
+        chartSvg.select("g.y.axis").call(yAxis);
+    }
 
-    var path = svg.append("g")
-    .attr("clip-path", "url(#clip)")
-    .append("path")
-    .datum(data)
-    .attr("class", "line")
-    .attr("d", line);
+    if (quotesArray.length > 0) {
 
-    tick(path, line, data, x);
-};
+        var lastGraphIndex =  graphQuoteArray[graphQuoteArray.length-1].index;
+        var lastQuoteIndex =  quotesArray[quotesArray.length-1].index;
 
-var transition = d3.select({}).transition().duration(750).ease("linear");
+        if (lastGraphIndex < lastQuoteIndex) { 
+            graphQuoteArray = graphQuoteArray.concat(quotesArray.slice(lastGraphIndex,quotesArray.length));
+        } 
+        var diff =  graphQuoteArray.length - width;
 
-chart([0, quotesArray.length, "linear", function tick(path, line, data) {
-    transition = transition.each(function() {
+        //x axis update
 
-        // push a new data point onto the back
-        data.push(random());
-        //
-        //         // pop the old data point off the front
-        data.shift();
-        //
-        //                 // transition the line
-        path.transition().attr("d",
-                               line);
+        //var tempSvg = d3.select("body").transition();
 
-    }).transition().each("start",
-    function() { tick(path,
-                      line, data); });
-});
+
+
+        //console.log (graphQuoteArray.length);
+
+
+        //y axis update
+
+        //tempSvg.select(".y.axis")
+        //.call(yAxis);
+
+        //tempSvg.select(".x.axis")
+        //.call(xAxis)
+        //.duration(1000)
+        //.attr("transform", "translate(" + x(-diff) + ",0)");
+        
+        var xExtent = d3.extent(graphQuoteArray, function(quote){return quote.index;}) 
+        x.domain(xExtent);
+
+        var yExtent = d3.extent(graphQuoteArray, function(quote) { return quote.price; });
+        y.domain([yExtent[0]/100-20,yExtent[1]/100+20]);
+
+        chartSvg.select(".line")
+        .attr("d",line(graphQuoteArray))
+        .attr("transform",null);
+
+        //path update
+        //chartSvg.select(".area").attr("d",area(graphQuoteArray));
+        
+
+        console.log (x(diff));
+        console.log (x(-diff));
+
+
+        if (diff > 0) {
+            for (var i=0; i< diff ; i++) {
+                console.log ("diff > 0");
+                chartSvg.select(".line")
+                .transition()
+                .duration(200)
+                .attr("d",line(graphQuoteArray))
+                .attr("transform", "translate(-" + i + ",0)");
+            }
+
+            graphQuoteArray = graphQuoteArray.slice(diff, graphQuoteArray.length);
+        }
+
+
+
+           var xExtent = d3.extent(graphQuoteArray, function(quote){return  quote.quoteTime;}) 
+           if (graphQuoteArray.length < width) {
+           x.range([0,graphQuoteArray.length])
+           x.domain(xExtent);
+           } else {
+           x.range([0,width])
+           x.domain([xExtent[1]-x(graphQuoteArray[graphQuoteArray.length-width].quoteTime),xExtent[1]]);
+           }
+
+           chartSvg.selectAll("g.x.axis").call(xAxis);
+
+        //Draw text labels and value 
+           var textArray= [{"label":"Price: ","value":quote.price},{"label":"Quote Time: ","value":quote.quoteTime} ]
+
+           var text = textSvg.selectAll("text")
+           .data(textArray);
+
+           text.exit().remove();
+
+
+           text.enter().append("text")
+           .attr("x", 20)
+           .attr("y", function(d,i) { return i*30 + 20; })
+           .attr("font-family", "sans-serif")
+           .attr("font-size", "20px");
+
+           text.text(function(d) {return d.label + d.value;});
+        } 
+        }
+}, 1000);
+
 */
+var duration = 0;
+var durationToggle = 1;
+var counter = 0;
+var avg = 0;
+
+
+function updateGraph() {
+    //console.log("Loop cycle: "+(tick++));
+
+
+    if (quotesArray.length > 0) {
+
+        var lastGraphIndex =  graphQuoteArray[graphQuoteArray.length-1].index;
+        var lastQuoteIndex =  quotesArray[quotesArray.length-1].index;
+
+        if (lastGraphIndex < lastQuoteIndex) { 
+            graphQuoteArray[graphQuoteArray.length] = quotesArray[lastGraphIndex];
+
+
+            var xExtent = d3.extent(graphQuoteArray, function(quote){return quote.index;}) 
+            x.domain(xExtent);
+
+            var yExtent = d3.extent(graphQuoteArray, function(quote) { return quote.price; });
+            y.domain([yExtent[0]/100-(yExtent[0]/100)*0.10,yExtent[1]/100+(yExtent[1]/100)*0.10]);
+
+            chartSvg.select(".line")
+            .attr("d",line(graphQuoteArray))
+            .transition()
+            .duration(duration)
+            .attr("transform",null);
+
+            chartSvg.select("g.x.axis").call(xAxis);
+            chartSvg.select("g.y.axis").call(yAxis);
+
+
+            graphQuoteArray.shift();
+        } 
+    } 
+    if (lastQuoteIndex - lastGraphIndex< 200) {
+        interval = 40;
+    } else {
+        interval = 20;
+    }
+    setTimeout(updateGraph, interval);
+}
+
+setTimeout(updateGraph, 100);
