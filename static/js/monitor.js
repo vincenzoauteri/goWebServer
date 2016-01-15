@@ -287,7 +287,7 @@ function updateGraph() {
     if (lastQuoteIndex - lastGraphIndex< 200) {
         interval = 40;
     } else {
-        interval = 20;
+        interval = 10;
     }
     setTimeout(updateGraph, interval);
 }

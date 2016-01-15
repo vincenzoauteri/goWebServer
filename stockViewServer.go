@@ -1,7 +1,9 @@
 package main
 
 import (
+    "time"
     "fmt"
+    "io/ioutil"
     "html/template"
     "net/http"
     "regexp"
@@ -16,6 +18,27 @@ type Page struct {
     Venue string
     Stock string
 }
+
+
+func monitorOrders (account string, venue string, stock string) {
+    ok , _, _ := place_order(venue, stock, "buy" , account, 10,0, market)
+
+    if !ok {
+        fmt.Printf("Cannot place initial order\n")
+        return
+    }
+
+    for ;; {
+        if (check_venue (venue)) {
+            place_order(venue, stock, "buy" , account, 1,0, "market")
+            place_order(venue, stock, "sell" , account, 1,0, "market")
+            time.Sleep(time.Duration(1000) * time.Millisecond)
+        } else {
+            return;
+        }
+    }
+}
+
 
 var templates = template.Must(template.ParseFiles("select.html","monitor.html"))
 var validPath = regexp.MustCompile("^/accounts/([a-zA-Z0-9]+)/venues/([a-zA-Z0-9]+)/stocks/([a-zA-Z0-9]+)$")
@@ -42,6 +65,7 @@ func monitorHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
     p:= &Page{account,stock,venue,stock,}
+    go monitorOrders(account,venue,stock);
     renderTemplate(w, "monitor" , p)
 }
 
@@ -62,7 +86,16 @@ func getDataFromUrl(w http.ResponseWriter, r *http.Request) (string,string, stri
     return m[1], m[2], m[3], nil // The title is the second subexpression.
 }
 
+
 func main() {
+    content, err := ioutil.ReadFile("./keyfile.dat")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    //Init globals
+    globals.ApiKey = string(content);
+    globals.httpClient = http.Client{}
     f, err := os.OpenFile("log", os.O_RDWR | os.O_CREATE, 0666)
     if err != nil {
         log.Fatal("error opening file: %v", err)
