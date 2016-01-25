@@ -103,11 +103,14 @@ var globals struct {
 }
 
 var gameData struct {
-    Venues map[string]VenueT
+    Venues map[string]*VenueT
 }
 
 type PositionT struct {
+    Id string
     Owned map[string]int
+    TotBought int
+    TotSold int
     Cash int
     NAV int
 }
@@ -121,9 +124,9 @@ type StockT struct {
 
 type VenueT struct {
     Id string
-    Stocks map[string]StockT
-    Accounts map[string]AccountT
-    Orders map[int]OrderT
+    Stocks map[string]*StockT
+    Accounts map[string]*AccountT
+    Orders map[int]*OrderT
     wsQuote *websocket.Conn
 }
 
@@ -268,7 +271,8 @@ func check_stocks_request(venueId string) bool {
             stockId:= tempJson.Symbols[i].Symbol
             _, exists := gameData.Venues[venueId].Stocks[stockId]
             if !exists {
-                gameData.Venues[venueId].Stocks[stockId] =  StockT{stockId, 0, OrderBookHistoryT{}, QuoteHistoryT{}};
+                stock :=  StockT{stockId, 0, OrderBookHistoryT{}, QuoteHistoryT{}};
+                gameData.Venues[venueId].Stocks[stockId] = &stock
             }
         }
     }
@@ -315,7 +319,8 @@ func quote_stock_request(venueId string, stockId string) bool {
     } else if tempJson.Ok {
         _, exists := gameData.Venues[venueId].Stocks[stockId]
         if !exists {
-            gameData.Venues[venueId].Stocks[stockId] =  StockT{stockId,tempJson.Last, OrderBookHistoryT{}, QuoteHistoryT{}};
+            stock := StockT{stockId,tempJson.Last, OrderBookHistoryT{}, QuoteHistoryT{}};
+            gameData.Venues[venueId].Stocks[stockId] = &stock  
         } else {
             stock := gameData.Venues[venueId].Stocks[stockId]
             stock.Quote = tempJson.Last
@@ -564,7 +569,7 @@ func check_order_status_request(orderId int, venueId string, stockId string) boo
     }
 
     if tempJson.Ok {
-        gameData.Venues[venueId].Orders[orderId] = tempJson
+        gameData.Venues[venueId].Orders[orderId] = &tempJson
     }
 
     return tempJson.Ok
@@ -615,10 +620,11 @@ func (venue *VenueT) update_quotes_ws() {
         stock,exists := venue.Stocks[stockQuoteWs.Quote.Symbol]
         if exists {
            stock.QuoteHistory.history = append(stock.QuoteHistory.history,stockQuoteWs)
+           stock.Quote = stockQuoteWs.Quote.Last
            venue.Stocks[stockQuoteWs.Quote.Symbol] = stock
            //fmt.Printf("%+v\n",venue.Stocks[stockQuoteWs.Quote.Symbol].QuoteHistory)
         }
-        time.Sleep(100*time.Millisecond);
+        time.Sleep(100*time.Millisecond)
     }
 }
 
@@ -631,19 +637,27 @@ func (account *AccountT) update_executions_ws() {
             return
         }
         account.update_position_from_executions(executions)
-        time.Sleep(100*time.Millisecond);
+        for fill := range executions.Order.Fills {
+            fmt.Printf("%12s\t%4s\t%12d\t%8d\n",
+            account.Id,
+            executions.Order.Direction,
+            executions.Order.Fills[fill].Qty,
+            executions.Order.Fills[fill].Price);
+            time.Sleep(100*time.Millisecond)
+        }
     }
 }
 
 
 func (account *AccountT) update_position_from_executions(executions ExecutionsT) {
-    position := account.Position
-    order := executions.Order
+    position := &account.Position
+    order := &executions.Order
 
     if order.Direction ==  "buy" {
         for i:= range order.Fills {
             fill := order.Fills[i]
             position.Cash -= fill.Qty*fill.Price
+            position.TotBought-= fill.Qty
             position.Owned[order.Symbol] += fill.Qty
         }
     }
@@ -651,10 +665,16 @@ func (account *AccountT) update_position_from_executions(executions ExecutionsT)
         for i:= range order.Fills {
             fill := order.Fills[i]
             position.Cash += fill.Qty*fill.Price
+            position.TotSold+= fill.Qty
             position.Owned[order.Symbol] -= fill.Qty
         }
     }
-    account.Position = position
+    totalValueOwnedStocks := 0
+    for stockId , owned := range position.Owned {
+        totalValueOwnedStocks += owned * gameData.Venues[account.VenueId].Stocks[stockId].Quote
+    }
+    position.NAV = position.Cash + totalValueOwnedStocks
+    //fmt.Printf("update_position account %s =>%+v\n",account.Id,account.Position)
 }
 
 func get_all_orders_request(accountId string, venueId string, stockId string) bool {
@@ -686,7 +706,7 @@ func get_all_orders_request(accountId string, venueId string, stockId string) bo
         if exists {
             venue:= gameData.Venues[venueId]
             for _, order := range tempJson.Orders {
-                venue.Orders[order.Id] = order
+                venue.Orders[order.Id] = &order
             }
             gameData.Venues[venueId] = venue
         }
@@ -695,47 +715,44 @@ func get_all_orders_request(accountId string, venueId string, stockId string) bo
 }
 
 func add_venue(venueId string) {
-    gameData.Venues[venueId] =  VenueT{venueId, make(map[string]StockT), make(map[string]AccountT), make(map[int]OrderT), nil}
+    var venue =  VenueT{venueId, make(map[string]*StockT), make(map[string]*AccountT), make(map[int]*OrderT), nil}
+    gameData.Venues[venueId] = &venue 
 
-    venue:= gameData.Venues[venueId]
     venue.init_tickertape_websocket()
     go venue.update_quotes_ws()
 }
 
 func (venue *VenueT) add_account(accountId string) {
-    venue.Accounts[accountId] = AccountT{accountId, venue.Id, PositionT{}, nil}
+    account := AccountT{accountId, venue.Id, PositionT{}, nil}
+    venue.Accounts[accountId] = &account
 
-    account := venue.Accounts[accountId]
-
+    account.Position.Id = account.Id
     account.Position.Owned = make(map[string]int)
     for _ , stock := range venue.Stocks {
         account.Position.Owned[stock.Id] = 0
     }
-    fmt.Printf("%+v\n",account.Position)
+    //fmt.Printf("%+v\n",account.Position)
 
     account.init_executions_websocket()
     go account.update_executions_ws()
-    venue.Accounts[accountId] = account
 }
 
 func (account* AccountT) update_position() {
-    position := account.Position
-    //fmt.Printf("%+v\n",position)
+    position := &account.Position
     totalValueOwnedStocks := 0
     for stockId , owned := range position.Owned {
         totalValueOwnedStocks += owned * gameData.Venues[account.VenueId].Stocks[stockId].Quote
     }
     position.NAV = position.Cash + totalValueOwnedStocks
-    account.Position = position
 }
 
 func (venue *VenueT) update_all_positions() {
-    for _, account:= range venue.Accounts {
-         account.update_position()
+    for  _ , account:= range venue.Accounts {
+        account.update_position()
     }
 }
 
-var validPath = regexp.MustCompile("account ([A-Z0-9]+)")
+var invalidCancelResponsePattern = regexp.MustCompile("account ([0-9A-z]+)")
 func get_account_from_cancel_order(venueId string, stockId string, orderId int) string{
 
     requestUrl := fmt.Sprintf("https://api.stockfighter.io/ob/api/venues/%s/stocks/%s/orders/%d", venueId, stockId, orderId)
@@ -764,7 +781,7 @@ func get_account_from_cancel_order(venueId string, stockId string, orderId int) 
     if err != nil {
         log.Print(err)
     } else if !tempJson.Ok   {
-        matches = validPath.FindStringSubmatch(string(responseData))
+        matches = invalidCancelResponsePattern.FindStringSubmatch(string(responseData))
     }
 
 
@@ -784,22 +801,27 @@ func collect_accounts (venueId string, stockId string, accountId string) {
     for ;; {
         ok , id  := place_order_request(venueId, stockId, "buy" , accountId, 1, 0, "market")
         if ok {
-            for ;lastOrder < id ; lastOrder++ {
+            for ;lastOrder < id && accountCounter < 101 ; lastOrder++ {
+                //fmt.Printf("LastOrder  %d id %d  accountCounter %d\n",lastOrder, id, accountCounter)
                 accountId:= get_account_from_cancel_order(venue.Id , stockId , lastOrder);
                 _,accountExists:= venue.Accounts[accountId]
                 if !accountExists {
                     venue.add_account(accountId)
                     accountCounter +=1;
-                    //fmt.Printf("Total accounts %d\n",accountCounter)
+                    if accountCounter >= 101 {
+                        return
+                    }
+                    //fmt.Printf("Found account %s Total accounts %d\n",accountId, accountCounter)
                 }
             }
         }
-        time.Sleep(time.Duration(1000) * time.Millisecond)
+        venue.update_all_positions()
+        time.Sleep(1000*time.Millisecond)
     }
 }
 
 
-func main() {
+func solve_level6(accountId string, venueId string, stockId string) {
     content, err := ioutil.ReadFile("./keyfile.dat")
     if err != nil {
         log.Fatal(err)
@@ -813,42 +835,41 @@ func main() {
     globals.httpClient = http.Client{}
 
     //Init game data
-    gameData.Venues = make(map[string]VenueT);
+    gameData.Venues = make(map[string]*VenueT);
     heartbeat()
-    currentVenue := "MWNBEX"
 
-    if check_venue_request(currentVenue) {
-        add_venue(currentVenue)
-        check_stocks_request(currentVenue)
+    if check_venue_request(venueId) {
+        add_venue(venueId)
+        check_stocks_request(venueId)
+    } else {
+        return
     }
 
-    var myAccount = "CES13776159"
-    venue, exists := gameData.Venues[currentVenue]
+    venue, exists := gameData.Venues[venueId]
+
     if  exists {
-        venue.add_account(myAccount)
+        venue.add_account(accountId)
     }
 
+    go collect_accounts(venueId, stockId, accountId)
+
+    /*
     tick :=0
     for ;; {
-        //fmt.Printf("Tick  %d\n",tick);
+        fmt.Printf("Tick  %d\n",tick);
         tick+=1;
         for _ , venue := range gameData.Venues {
             check_stocks_request(venue.Id);
-            for _ , stock := range gameData.Venues[venue.Id].Stocks {
+            for _ , stock := range venue.Stocks {
+                if !check_venue_request(currentVenue) {
+                    log.Print("Game Ended!")
+                    return
+                }
                 quote_stock_request(venue.Id,stock.Id)
-                //order_book_request(venue.Id,stock.Id)
-                //get_all_orders_request(myAccount,venue.Id,stock.Id);
-                //process_order_book(gameData.Venues[venue.Id].Stocks[stock.Id].OrderBookHistory)
-                go collect_accounts(venue.Id, stock.Id, myAccount)
-            }
-            //fmt.Printf(" %+v\n",gameData.Venues[venue.Id].Orders);
-            venue.update_all_positions()
-            for _,account:= range venue.Accounts {
-                fmt.Printf("ACCOUNT %s CASH %d NAV %d OWNED %+v\n",
-                account.Id, account.Position.Cash, account.Position.NAV, account.Position.Owned);
             }
         }
-        time.Sleep(10000*time.Millisecond)
+        time.Sleep(1000*time.Millisecond)
     }
+    */
 
 }

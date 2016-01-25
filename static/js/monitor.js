@@ -6,11 +6,11 @@ var myPattern="/accounts/([a-zA-Z0-9]+)/venues/([a-zA-Z0-9]+)/stocks/([a-zA-Z0-9
 var matches= url.match(myPattern);
 console.log(matches)
 
-account= matches[1]
+var account= matches[1]
 console.log("Account:"+account);
-venue= matches[2]
+var venue= matches[2]
 console.log("Venue:"+venue);
-stock= matches[3]
+var stock= matches[3]
 console.log("Stock:"+stock);
 
 var quotesArray = [];
@@ -41,6 +41,12 @@ var xTimeAxis = d3.svg.axis()
 var xIndexAxis = d3.svg.axis()
     .scale(xIndex)
     .orient("bottom")
+    .tickFormat(function (d,i) {
+        if (quotesArray[d] != null ) {
+        var qt = quotesArray[d].quoteTime;
+        return qt.getHours()+":"+qt.getMinutes()+":"+qt.getSeconds();
+        }
+    })
     .ticks(5);
 
 var yAxis = d3.svg.axis()
@@ -52,7 +58,7 @@ var x=xIndex;
 var xAxis=xIndexAxis;
 
 
-var chartSvg = d3.select("body").append("svg")
+var chartSvg = d3.select("#chart").append("svg")
     .attr("width", width + margin.left + margin.right)
     .attr("height", height + margin.top + margin.bottom)
     .append("g")
@@ -95,13 +101,16 @@ chartSvg.append("path")
     .attr("fill", "none");
 
 var quoteCounter = 0;
-var quotesWebSocker = new WebSocket("wss://api.stockfighter.io/ob/api/ws/"+account+"/venues/"+venue+"/tickertape/stocks/"+stock);
+
+var quotesWebSocket = new WebSocket("wss://api.stockfighter.io/ob/api/ws/"+account+"/venues/"+venue+"/tickertape/stocks/"+stock);
 
 
-quotesWebSocker.onmessage = function (event) {
+
+quotesWebSocket.onmessage = function (event) {
     var ticker = JSON.parse(event.data);
     quoteCounter++;
-    var quote = { "quoteTime":format.parse(ticker.quote.quoteTime.slice(0,19)), "price":ticker.quote.last, "index":quoteCounter};
+    //var quote = { "quoteTime":format.parse(ticker.quote.quoteTime.slice(0,19)), "price":ticker.quote.last, "index":quoteCounter};
+    var quote = { "quoteTime":new Date(), "price":ticker.quote.last, "index":quoteCounter};
 
     if (quotesArray.length > 0 && ((new Date(quote.quoteTime)).getTime() > (new Date(quotesArray[quotesArray.length])).getTime())) {
         quotesArray.push(quote);
@@ -114,138 +123,10 @@ var tick = 0;
 
 var graphQuoteArray = [];
 for (var i = 0; i < width; i++) {
-        graphQuoteArray.push({ "quoteTime":0, "price":0, "index":-width+i+1});
+        graphQuoteArray.push({ "quoteTime":new Date(), "price":0, "index":-width+i+1});
 }
 
 
-/*
-setInterval(function() {
-    console.log("Loop cycle: "+(tick++));
-    /*
-    if (quotesArray.length > 0) {
-        console.log("Data in");
-
-        var diff =   quotesArray.length  - width;
-        if (diff > 0) {
-            graphQuoteArray = quotesArray.slice(quotesArray.length-width,quotesArray.length);
-            chartSvg.select(".line")
-            .attr("transform", "translate(" + (-diff) + ",0)");
-        } else {
-            graphQuoteArray = quotesArray.slice(0,quotesArray.length);
-        }
-
-        chartSvg.select("path")
-        .transition();
-
-        chartSvg.select(".line")
-        .attr("d",line(graphQuoteArray));
-
-        var xExtent = d3.extent(graphQuoteArray, function(quote){return  quote.index;}) 
-        x.range([0,width])
-        x.domain(xExtent);
-        chartSvg.selectAll("g.x.axis").call(xAxis);
-
-
-        var yExtent = d3.extent(graphQuoteArray, function(quote) { return quote.price; });
-
-        y.domain([yExtent[0]/100-20,yExtent[1]/100+20]);
-        chartSvg.select("g.y.axis").call(yAxis);
-    }
-
-    if (quotesArray.length > 0) {
-
-        var lastGraphIndex =  graphQuoteArray[graphQuoteArray.length-1].index;
-        var lastQuoteIndex =  quotesArray[quotesArray.length-1].index;
-
-        if (lastGraphIndex < lastQuoteIndex) { 
-            graphQuoteArray = graphQuoteArray.concat(quotesArray.slice(lastGraphIndex,quotesArray.length));
-        } 
-        var diff =  graphQuoteArray.length - width;
-
-        //x axis update
-
-        //var tempSvg = d3.select("body").transition();
-
-
-
-        //console.log (graphQuoteArray.length);
-
-
-        //y axis update
-
-        //tempSvg.select(".y.axis")
-        //.call(yAxis);
-
-        //tempSvg.select(".x.axis")
-        //.call(xAxis)
-        //.duration(1000)
-        //.attr("transform", "translate(" + x(-diff) + ",0)");
-        
-        var xExtent = d3.extent(graphQuoteArray, function(quote){return quote.index;}) 
-        x.domain(xExtent);
-
-        var yExtent = d3.extent(graphQuoteArray, function(quote) { return quote.price; });
-        y.domain([yExtent[0]/100-20,yExtent[1]/100+20]);
-
-        chartSvg.select(".line")
-        .attr("d",line(graphQuoteArray))
-        .attr("transform",null);
-
-        //path update
-        //chartSvg.select(".area").attr("d",area(graphQuoteArray));
-        
-
-        console.log (x(diff));
-        console.log (x(-diff));
-
-
-        if (diff > 0) {
-            for (var i=0; i< diff ; i++) {
-                console.log ("diff > 0");
-                chartSvg.select(".line")
-                .transition()
-                .duration(200)
-                .attr("d",line(graphQuoteArray))
-                .attr("transform", "translate(-" + i + ",0)");
-            }
-
-            graphQuoteArray = graphQuoteArray.slice(diff, graphQuoteArray.length);
-        }
-
-
-
-           var xExtent = d3.extent(graphQuoteArray, function(quote){return  quote.quoteTime;}) 
-           if (graphQuoteArray.length < width) {
-           x.range([0,graphQuoteArray.length])
-           x.domain(xExtent);
-           } else {
-           x.range([0,width])
-           x.domain([xExtent[1]-x(graphQuoteArray[graphQuoteArray.length-width].quoteTime),xExtent[1]]);
-           }
-
-           chartSvg.selectAll("g.x.axis").call(xAxis);
-
-        //Draw text labels and value 
-           var textArray= [{"label":"Price: ","value":quote.price},{"label":"Quote Time: ","value":quote.quoteTime} ]
-
-           var text = textSvg.selectAll("text")
-           .data(textArray);
-
-           text.exit().remove();
-
-
-           text.enter().append("text")
-           .attr("x", 20)
-           .attr("y", function(d,i) { return i*30 + 20; })
-           .attr("font-family", "sans-serif")
-           .attr("font-size", "20px");
-
-           text.text(function(d) {return d.label + d.value;});
-        } 
-        }
-}, 1000);
-
-*/
 var duration = 0;
 var durationToggle = 1;
 var counter = 0;
@@ -284,12 +165,141 @@ function updateGraph() {
             graphQuoteArray.shift();
         } 
     } 
+    var interval = 10
     if (lastQuoteIndex - lastGraphIndex< 200) {
         interval = 40;
-    } else {
-        interval = 10;
-    }
+    } 
     setTimeout(updateGraph, interval);
+
+}
+setTimeout(updateGraph, 100);
+
+
+
+/*
+var accounts = {}
+
+setInterval (function() {
+    $.getJSON( "/update/"+venue,  function( data ) {
+        for (var i in data) {
+        accounts[i] = { account: data[i].Id, NAV:data[i].NAV};
+        } 
+        console.log(accounts)
+    }); 
+}, 1000);
+*/
+
+
+var AccountRow = React.createClass({
+    render: function() {
+        return (
+            <tr>
+                <td>
+                    {this.props.Account}
+                </td>
+                <td>
+                    {this.props.NAV}
+                </td>
+            </tr>
+        );
+    }
+});
+
+var AccountTable= React.createClass({
+    render: function() {
+        var accountRows = this.props.data.map(function(position) {
+            return (
+            <tr key={position.Id}>
+                <td>
+                    {position.Id}
+                </td>
+                <td>
+                    {position.NAV}
+                </td>
+                <td>
+                    {position.Owned[stock]}
+                </td>
+                <td>
+                    {position.TotBought}
+                </td>
+                <td>
+                    {position.TotSold}
+                </td>
+            </tr>
+            );
+        });
+        return (
+            <table className="account-table">
+            <thead>
+            <tr>
+                <td>
+                    Account
+                </td>
+                <td>
+                    NAV
+                </td>
+                <td>
+                    Owned
+                </td>
+                <td>
+                    TotBought
+                </td>
+                <td>
+                    TotSold
+                </td>
+            </tr>
+            </thead>
+            <tbody>
+            {accountRows}
+            </tbody>
+            </table>
+        );
+    }
+});
+
+function compareNAV(a,b) {
+    if (a.NAV > b.NAV)
+        return -1;
+    else if (a.NAV < b.NAV)
+        return 1;
+    else 
+        return 0;
 }
 
-setTimeout(updateGraph, 100);
+var AccountsDiv = React.createClass({
+    loadDataFromServer: function() {
+        $.ajax({
+            url: this.props.url,
+            dataType: 'json',
+            cache: false,
+            success: function(data) {
+                data.sort(compareNAV);
+                this.setState({data: data});
+            }.bind(this),
+            error: function(xhr, status, err) {
+                console.error(this.props.url, status, err.toString());
+            }.bind(this)
+        });
+    },
+    getInitialState: function() {
+        return {data: []};
+    },
+    componentDidMount: function() {
+        this.loadDataFromServer();
+        setInterval(this.loadDataFromServer, this.props.pollInterval);
+    },
+    render: function() {
+        return (
+            <div className="accounts-div">
+            <h1>Accounts Status</h1>
+            <AccountTable data={this.state.data} />
+            </div>
+        );
+    }
+});
+
+
+ReactDOM.render(
+    <AccountsDiv url={"/update/"+venue} pollInterval={2000} />,
+    document.getElementById("account-table-div")
+);
