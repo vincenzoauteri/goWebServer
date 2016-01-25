@@ -2,7 +2,7 @@ LEVEL 6 solution:
 
 This code try to solve level 6 of stockfighter (and was used to pass the other levels as well).
 
-The backend in go provide the interface with the SF api and the javascript frontend visualizes stock quotes and update account status in real time.
+The backend in go provides the interface with the SF api and the javascript frontend visualizes stock quotes and update account status in real time.
 
 Account numbers were found by exploiting the response of the "Cancel Order" error response, after trying all the API commands and checking the response.
 
