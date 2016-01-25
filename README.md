@@ -17,4 +17,4 @@ Finally to identify the culprit, a few assumptions: must have a fairly positive 
 
 After running a few runs, and analyzing the final summary for each account there is one that seems to be different from the other bots, as having a nice NAV and a relatively low number of orders, compared to the other accounts.
 
-![alt tag](https://raw.github.com/username/projectname/branch/path/to/img.png)
+![alt tag](https://raw.githubusercontent.com/vincenzoauteri/goWebServer/master/level6.PNG)
